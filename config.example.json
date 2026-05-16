@@ -1,0 +1,27 @@
+{
+  "cloudId": "11f6144a-d25c-4525-ac25-518883520f06",
+  "siteHost": "paytmpayments.atlassian.net",
+  "defaultProjectKey": "TMD",
+  "defaultIssueType": "Task",
+  "stateDir": "~/.local/share/jira-cli",
+  "mcpUrl": "https://mcp.atlassian.com/v1/mcp",
+  "expandLogWithCursor": true,
+  "jiraAdditionalFields": {},
+  "jiraAdditionalFieldsKeyAliases": {},
+  "jiraLogExcludeAdditionalFields": [],
+  "jiraRewriteOptionValueOnlyToName": true,
+  "jiraDisableCustomfieldOptionArrayWrap": false,
+  "jiraEodExcludeStatuses": ["DONE", "Invalid"],
+  "jiraEodTargetStatuses": [
+    "DONE",
+    "IN REVIEW",
+    "IN PROGRESS",
+    "OPEN",
+    "BLOCKED",
+    "DEPLOYMENT IN PROGRESS",
+    "PENDING FOR RCA",
+    "QUEUE",
+    "REOPENED (MIGRATED)"
+  ],
+  "jiraEodDefaultStatus": "DONE"
+}
