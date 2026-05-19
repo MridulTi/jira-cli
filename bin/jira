@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Always use the project venv (install.sh creates .venv and installs mcp).
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PY="${ROOT}/.venv/bin/python3"
+if [[ ! -x "${PY}" ]]; then
+  echo "Run: cd \"${ROOT}\" && ./install.sh" >&2
+  exit 1
+fi
+exec "${PY}" "${ROOT}/jira.py" "$@"
