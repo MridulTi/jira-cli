@@ -1,17 +1,39 @@
 {
-  "cloudId": "11f6144a-d25c-4525-ac25-518883520f06",
+  "cloudId": "",
   "siteHost": "paytmpayments.atlassian.net",
   "defaultProjectKey": "TMD",
   "defaultIssueType": "Task",
-  "stateDir": "~/.local/share/jira-cli",
+  "stateDir": "/Users/mridultiwari/.local/share/jira-cli-state",
   "mcpUrl": "https://mcp.atlassian.com/v1/mcp",
-  "expandLogWithCursor": true,
-  "jiraAdditionalFields": {},
+  "jiraAdditionalFields": {
+    "components": [
+      {
+        "name": "DevOps"
+      }
+    ],
+    "customfield_10574": {
+      "id": "11195"
+    },
+    "customfield_10578": {
+      "id": "11217"
+    },
+    "customfield_10665": {
+      "id": "11597"
+    },
+    "priority": {
+      "name": "Blocker"
+    }
+  },
   "jiraAdditionalFieldsKeyAliases": {},
-  "jiraLogExcludeAdditionalFields": [],
+  "jiraLogExcludeAdditionalFields": [
+    "priority"
+  ],
   "jiraRewriteOptionValueOnlyToName": true,
-  "jiraDisableCustomfieldOptionArrayWrap": false,
-  "jiraEodExcludeStatuses": ["DONE", "Invalid"],
+  "jiraResolveCustomfieldOptions": true,
+  "jiraEodExcludeStatuses": [
+    "DONE",
+    "Invalid"
+  ],
   "jiraEodTargetStatuses": [
     "DONE",
     "IN REVIEW",
