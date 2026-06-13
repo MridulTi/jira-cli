@@ -1,0 +1,51 @@
+{
+  "cloudId": "<cloud-id>",
+  "siteHost": "<sitehost>",
+  "defaultProjectKey": "<PROJECT-KEY>",
+  "defaultIssueType": "Task",
+  "stateDir": "/Users/<your-name>/.local/share/jira-cli-state",
+  "mcpUrl": "https://mcp.atlassian.com/v1/mcp",
+  "jiraAdditionalFields": {
+    "components": [
+      {
+        "name": "DevOps"
+      }
+    ],
+    "customfield_10594": {
+      "id": "11195"
+    },
+    "customfield_10598": {
+      "id": "11217"
+    },
+    "customfield_10695": {
+      "id": "11597"
+    },
+    "priority": {
+      "name": "Blocker"
+    }
+  },
+  "jiraAdditionalFieldsKeyAliases": {},
+  "jiraLogExcludeAdditionalFields": [
+    "priority"
+  ],
+  "jiraRewriteOptionValueOnlyToName": true,
+  "jiraResolveCustomfieldOptions": true,
+  "jiraEodExcludeStatuses": [
+    "DONE",
+    "Invalid"
+  ],
+  "jiraEodTargetStatuses": [
+    "DONE",
+    "IN REVIEW",
+    "IN PROGRESS",
+    "OPEN",
+    "BLOCKED",
+    "DEPLOYMENT IN PROGRESS",
+    "PENDING FOR RCA",
+    "QUEUE",
+    "REOPENED (MIGRATED)",
+    "INVALID"
+  ],
+  "jiraEodDefaultStatus": "DONE",
+  "jiraWeekParentKey": "<PARENT_JIRA_KEY>"
+}
