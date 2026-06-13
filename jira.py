@@ -6,7 +6,8 @@ No Jira API tokens in config — same OAuth flow as Cursor's Atlassian plugin.
 Usage:
   jira.py auth
   jira.py cursor-login                     # same Cursor CLI resolution as `jira log` (no PATH needed)
-  jira.py log "Rough note" --time 2h       # Cursor fills title + detailed description (default)
+  jira.py log "Rough note" --time 2h       # Cursor + due date = Saturday (end of work week)
+  jira.py log "Note" --time 1d --due-date 2026-05-23
   jira.py log "Exact text only" --time 1h --plain
   jira.py status TMD-123 Done
   jira.py fields [--issue-type Task] [--json]   # required create fields + sample jiraAdditionalFields
@@ -85,6 +86,8 @@ DEFAULT_CONFIG = {
     "jiraCacheFieldMetadataHours": 24,
     # Skip slow metadata fetch on `jira log` when customfield_* values already use {"id": "..."}.
     "jiraLogSkipFieldMetadataWhenIdsResolved": True,
+    # `jira log` due date when --due-date omitted: "end_of_week" (Saturday) or YYYY-MM-DD.
+    "jiraLogDefaultDueDate": "end_of_week",
 }
 
 
@@ -560,6 +563,12 @@ def _print_jira_create_error_hints(message: str) -> None:
             "or set JIRA_LOG_EXCLUDE_ADDITIONAL_FIELDS (comma-separated).",
             file=sys.stderr,
         )
+    if "due date" in m or "duedate" in m:
+        print(
+            "  Hint: TMD requires a due date on create. Default is Saturday (end of work week); "
+            "override with `jira log ... --due-date 2026-05-23` or jiraLogDefaultDueDate in config.",
+            file=sys.stderr,
+        )
 
 
 def extract_runtime_from_group(exc: BaseException) -> RuntimeError | None:
@@ -828,19 +837,62 @@ def _eod_default_status(cfg: dict[str, Any]) -> str:
     return options[0] if options else "DONE"
 
 
+def parse_log_due_date(raw: str) -> str:
+    """Parse --due-date / config value to Jira duedate (YYYY-MM-DD)."""
+    text = raw.strip()
+    if text.lower() in ("end_of_week", "week_end", "saturday", "sat"):
+        return saturday_of_work_week(date.today()).isoformat()
+    try:
+        return date.fromisoformat(text[:10]).isoformat()
+    except ValueError as err:
+        raise ValueError(
+            f"Invalid due date {raw!r}; use YYYY-MM-DD or end_of_week"
+        ) from err
+
+
+def resolve_log_due_date(cfg: dict[str, Any], due_date_arg: str | None) -> str | None:
+    """Due date for create: CLI flag wins, else config default, else None (use jiraAdditionalFields)."""
+    if due_date_arg:
+        return parse_log_due_date(due_date_arg)
+    cfg_default = cfg.get("jiraLogDefaultDueDate")
+    if cfg_default is None or str(cfg_default).strip() == "":
+        return saturday_of_work_week(date.today()).isoformat()
+    return parse_log_due_date(str(cfg_default))
+
+
+def apply_log_due_date(
+    cfg: dict[str, Any], extra_fields: dict[str, Any], due_date_arg: str | None
+) -> str:
+    """Set additional_fields duedate; returns ISO date applied."""
+    if due_date_arg:
+        due = parse_log_due_date(due_date_arg)
+        extra_fields["duedate"] = due
+        return due
+    if extra_fields.get("duedate"):
+        return str(extra_fields["duedate"])[:10]
+    due = resolve_log_due_date(cfg, None)
+    if due:
+        extra_fields["duedate"] = due
+        return due
+    due = saturday_of_work_week(date.today()).isoformat()
+    extra_fields["duedate"] = due
+    return due
+
+
 def _is_eod_excluded_status(status: str, excluded: tuple[str, ...]) -> bool:
     needle = status.strip().lower()
     return needle in {s.lower() for s in excluded}
 
 
 def work_week_jql(cfg: dict[str, Any] | None = None) -> str:
-    """Assignee issues updated Mon–Sat of current calendar week (locale-independent dates)."""
+    """Issues assigned to you (not reporter) updated Mon–Sat of the current work week."""
     mon = monday_of_week(date.today())
     sat = saturday_of_work_week(date.today())
     m = mon.strftime("%Y/%m/%d")
     s = sat.strftime("%Y/%m/%d")
     base = (
-        f'assignee = currentUser() AND updated >= "{m}" AND updated <= endOfDay("{s}")'
+        f'assignee = currentUser() AND assignee is not EMPTY '
+        f'AND updated >= "{m}" AND updated <= endOfDay("{s}")'
     )
     excluded = _eod_excluded_statuses(cfg or {})
     if excluded:
@@ -1352,6 +1404,7 @@ async def cmd_log(
     started: str | None,
     use_cursor: bool,
     cursor_agent_extra: list[str],
+    due_date: str | None = None,
 ) -> None:
     brief = description.strip()
     summary_text = summary_from_text(brief)
@@ -1412,6 +1465,8 @@ async def cmd_log(
             "assignee_account_id": account_id,
         }
         extra_fields = apply_jira_log_additional_field_exclusions(cfg, merge_additional_fields(cfg))
+        due_applied = apply_log_due_date(cfg, extra_fields, due_date)
+        log_step(f"Jira: due date {due_applied}")
         fields_map: dict[str, Any] = {}
         if cfg.get("jiraResolveCustomfieldOptions", True):
             fields_map = await fetch_issue_type_fields_map_for_log(
@@ -1699,7 +1754,7 @@ async def _run_eod_interactive(
         print(f"Week parent: {parent}  {issue_url(cfg, parent)}\n")
 
     numbered = sorted(issues.values(), key=lambda x: x["key"])
-    print("Open issues (not Done / Invalid):")
+    print("Open issues assigned to you (not Done / Invalid):")
     for i, row in enumerate(numbered, 1):
         st = row.get("status")
         suffix = f"  [{st}]" if st else ""
@@ -1715,6 +1770,38 @@ async def _run_eod_interactive(
             print("  Not in this week's open list.")
             continue
         await _eod_issue_actions(session, cloud_id, cfg, key, issues[key])
+
+
+async def _filter_eod_issues_assignee_only(
+    session: Any,
+    cloud_id: str,
+    issues: dict[str, dict[str, str]],
+) -> dict[str, dict[str, str]]:
+    """Keep only issues where current user is assignee (exclude reporter-only / unassigned)."""
+    if not issues:
+        return issues
+    keys = sorted(issues.keys())
+    chunk_size = 50
+    assignee_keys: set[str] = set()
+    for i in range(0, len(keys), chunk_size):
+        batch = keys[i : i + chunk_size]
+        key_list = ", ".join(batch)
+        jql = f"key in ({key_list}) AND assignee = currentUser()"
+        result = await call_tool(
+            session,
+            "searchJiraIssuesUsingJql",
+            {
+                "cloudId": cloud_id,
+                "jql": jql,
+                "maxResults": len(batch),
+                "fields": ["key", "assignee"],
+            },
+        )
+        for hit in dig(result, "issues") or []:
+            k = hit.get("key")
+            if k:
+                assignee_keys.add(str(k))
+    return {k: issues[k] for k in keys if k in assignee_keys}
 
 
 async def _filter_eod_issues_by_status(
@@ -1794,17 +1881,20 @@ async def cmd_eod(
                         "status": status_name,
                     }
 
+        issues = await _filter_eod_issues_assignee_only(session, cloud_id, issues)
         issues = await _filter_eod_issues_by_status(session, cloud_id, cfg, issues)
 
         if not issues:
-            print("No open issues for this work week (excluding Done / Invalid).")
+            print(
+                "No open issues assigned to you this work week (excluding Done / Invalid)."
+            )
             return
 
         if list_only:
             parent = get_week_parent(cfg)
             if parent:
                 print(f"Week parent: {parent}  {issue_url(cfg, parent)}\n")
-            print("Open issues this week (not Done / Invalid):")
+            print("Open issues assigned to you this week (not Done / Invalid):")
             numbered = sorted(issues.values(), key=lambda x: x["key"])
             for i, row in enumerate(numbered, 1):
                 st = row.get("status")
@@ -2095,6 +2185,11 @@ def build_parser() -> argparse.ArgumentParser:
     log_p.add_argument("-p", "--project", help="Project key (default TMD)")
     log_p.add_argument("--type", help="Issue type (default Task)")
     log_p.add_argument("--started", help="Worklog start ISO 8601")
+    log_p.add_argument(
+        "--due-date",
+        metavar="DATE",
+        help="Issue due date YYYY-MM-DD (default: Saturday end of current Mon–Sat work week)",
+    )
     cursor_group = log_p.add_mutually_exclusive_group()
     cursor_group.add_argument(
         "--cursor",
@@ -2144,7 +2239,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     eod_p = sub.add_parser(
         "eod",
-        help="End of day: per-issue open, comment, or status change",
+        help="End of day: your assignee issues only (not reporter); open / comment / status",
     )
     eod_p.add_argument("--done", help="Comma-separated keys (non-interactive)")
     eod_p.add_argument(
@@ -2196,16 +2291,21 @@ async def async_main(argv: list[str] | None = None) -> int:
             cursor_extras.append("--yolo")
         if getattr(args, "cursor_agent_f", False):
             cursor_extras.append("-f")
-        await cmd_log(
-            cfg,
-            args.description,
-            args.time,
-            args.project,
-            args.type,
-            args.started,
-            use_cursor=use_cursor,
-            cursor_agent_extra=cursor_extras,
-        )
+        try:
+            await cmd_log(
+                cfg,
+                args.description,
+                args.time,
+                args.project,
+                args.type,
+                args.started,
+                use_cursor=use_cursor,
+                cursor_agent_extra=cursor_extras,
+                due_date=getattr(args, "due_date", None),
+            )
+        except ValueError as err:
+            print(err, file=sys.stderr)
+            return 1
         return 0
     if args.command == "status":
         await cmd_status(cfg, args.key.upper(), args.status_name)
